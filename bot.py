@@ -1,16 +1,14 @@
 import logging
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram.ext import Updater, CommandHandler
 
 TOKEN = "7935798222:AAG66GadO-yyPoNxudhRLncjPgW4O3n4p6A"
 
-def start(update: Update, context: CallbackContext):
-    update.message.reply_text('✅ البوت يعمل الآن بشكل صحيح!')
+def start(update, context):
+    update.message.reply_text('🎉 البوت يعمل بشكل مثالي الآن!')
 
 def main():
-    # الطريقة الحديثة لتهيئة Updater
-    updater = Updater(token=TOKEN, use_context=True)
-    
+    # الطريقة الصحيحة للإصدار 20.x
+    updater = Updater(TOKEN)
     dp = updater.dispatcher
     dp.add_handler(CommandHandler("start", start))
     
@@ -20,7 +18,7 @@ def main():
     )
     
     updater.start_polling()
-    print("🟢 البوت يعمل بدون أخطاء...")
+    print("🟢 البوت يعمل بدون أخطاء")
     updater.idle()
 
 if __name__ == '__main__':
