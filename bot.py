@@ -1,25 +1,30 @@
 import logging
-from telegram.ext import Updater, CommandHandler
+from telegram.ext import Application, CommandHandler
+from telegram import Update
 
 TOKEN = "7935798222:AAG66GadO-yyPoNxudhRLncjPgW4O3n4p6A"
 
-def start(update, context):
-    update.message.reply_text('🎉 البوت يعمل بشكل مثالي الآن!')
+async def start(update: Update, context):
+    await update.message.reply_text('✅ البوت يعمل الآن بكل سلاسة!')
 
 def main():
-    # الطريقة الصحيحة للإصدار 20.x
-    updater = Updater(TOKEN)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("start", start))
+    # إنشاء التطبيق باستخدام الأنماط الحديثة
+    application = Application.builder().token(TOKEN).build()
     
+    # إضافة الأمر start
+    application.add_handler(CommandHandler("start", start))
+    
+    # تهيئة نظام التسجيل
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         level=logging.INFO
     )
     
-    updater.start_polling()
-    print("🟢 البوت يعمل بدون أخطاء")
-    updater.idle()
+    logger = logging.getLogger(__name__)
+    
+    # بدء البوت
+    application.run_polling()
+    logger.info("🟢 البوت يعمل بدون مشاكل")
 
 if __name__ == '__main__':
     main()
