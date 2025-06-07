@@ -27,7 +27,7 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
                 # استخراج جميع نقاط TP
                 tp_levels = {}
                 for i, match in enumerate(tp_matches, start=1):
-                    tp_levels[f"tp{i}"] = float(match[1]))
+                    tp_levels[f"tp{i}"] = float(match[1])
                 
                 active_signals[coin] = {
                     "entry": entry,
