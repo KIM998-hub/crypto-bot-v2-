@@ -1,1 +1,2 @@
 python-telegram-bot==20.3
+ccxt==4.1.59
