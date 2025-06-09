@@ -13,7 +13,6 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
     if update.message.forward_from_chat and update.message.forward_from_chat.id == CHANNEL_ID:
         text = update.message.text
         try:
-            # استخراج البيانات باستخدام التعابير النمطية
             coin_match = re.search(r"الزوج: (\w+/\w+)", text)
             entry_match = re.search(r"نقطة الدخول: (\d+\.\d+)", text)
             sl_match = re.search(r"وقف الخسارة: (\d+\.\d+)", text)
@@ -24,7 +23,6 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
                 entry = float(entry_match.group(1))
                 sl = float(sl_match.group(1))
                 
-                # استخراج جميع نقاط TP
                 tp_levels = {}
                 for i, match in enumerate(tp_matches, start=1):
                     tp_levels[f"tp{i}"] = float(match[1])
@@ -47,7 +45,6 @@ async def check_prices(context: CallbackContext):
             ticker = ccxt.binance().fetch_ticker(coin)
             current_price = ticker['last']
             
-            # التحقق من SL أولاً
             if current_price <= data['sl']:
                 loss = ((data['entry'] - current_price) / data['entry']) * 100
                 await context.bot.send_message(
@@ -58,7 +55,6 @@ async def check_prices(context: CallbackContext):
                 del active_signals[coin]
                 continue
                 
-            # التحقق من نقاط TP
             for i in range(1, 8):
                 tp_key = f"tp{i}"
                 if tp_key in data and current_price >= data[tp_key]:
@@ -75,13 +71,17 @@ async def check_prices(context: CallbackContext):
             logging.error(f"Error checking prices: {e}")
 
 def main():
+    # تهيئة التطبيق مع JobQueue
     app = Application.builder().token(TOKEN).build()
     
+    # إضافة المعالجات
     app.add_handler(MessageHandler(filters.TEXT & filters.FORWARDED, handle_forwarded_message))
     
-    # فحص الأسعار كل دقيقة (60 ثانية)
-    app.job_queue.run_repeating(check_prices, interval=60.0)
+    # تهيئة JobQueue
+    job_queue = app.job_queue
+    job_queue.run_repeating(check_prices, interval=60.0, first=10)
     
+    # بدء البوت
     app.run_polling()
 
 if __name__ == "__main__":
