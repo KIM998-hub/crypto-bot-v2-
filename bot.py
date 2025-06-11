@@ -15,11 +15,11 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
             text = update.message.text
             logging.info(f"Received signal: {text}")
             
-            # استخراج البيانات بدقة
-            coin_match = re.search(r"الزوج:\s*(\w+/\w+)", text)
-            entry_match = re.search(r"الدخول:\s*(\d+\.\d+)", text)
-            sl_match = re.search(r"وقف الخسارة:\s*(\d+\.\d+)", text)
-            tp_matches = re.finditer(r"(\d+)️⃣\s*(\d+\.\d+)", text)
+            # استخراج البيانات من التنسيق الجديد
+            coin_match = re.search(r"Coin:\s*(\w+/\w+)", text)
+            entry_match = re.search(r"Entry Point:\s*(\d+\.\d+)", text)
+            sl_match = re.search(r"Stop Loss:\s*(\d+\.\d+)", text)
+            tp_matches = re.finditer(r"(\d+)\s+(\d+\.\d+)", text)
             
             if not (coin_match and entry_match and sl_match):
                 await update.message.reply_text("⚠️ تعذر تحليل التوصية، يرجى التأكد من التنسيق")
