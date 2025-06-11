@@ -15,18 +15,10 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
             text = update.message.text
             logging.info(f"Received signal: {text}")
             
-            # استخراج البيانات الأساسية
+            # استخراج البيانات من التنسيق الجديد
             coin_match = re.search(r"Coin:\s*(\w+/\w+)", text, re.IGNORECASE)
             entry_match = re.search(r"Entry Point:\s*(\d+\.\d+)", text, re.IGNORECASE)
             sl_match = re.search(r"Stop Loss:\s*(\d+\.\d+)", text, re.IGNORECASE)
-            
-            if not (coin_match and entry_match and sl_match):
-                await update.message.reply_text("⚠️ Could not parse basic signal information")
-                return
-
-            coin = coin_match.group(1).strip()
-            entry = float(entry_match.group(1))
-            sl = float(sl_match.group(1))
             
             # استخراج أهداف الربح بطرق مختلفة
             tp_levels = {}
@@ -36,25 +28,27 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
             if targets_section:
                 tp_lines = targets_section.group(1).strip().split('\n')
                 for line in tp_lines:
-                    match = re.search(r"(\d+)\s+(\d+\.\d+)", line)
+                    # دعم التنسيقات: "1. 439.3" أو "1 439.3" أو "439.3"
+                    match = re.search(r"(\d+)\.?\s*(\d+\.\d+)", line.strip())
                     if match:
                         tp_num = int(match.group(1))
                         tp_price = float(match.group(2))
                         tp_levels[f"tp{tp_num}"] = tp_price
-            
-            # الطريقة 2: إذا لم تنجح الطريقة الأولى، نبحث عن جميع الأرقام في القسم
-            if not tp_levels and targets_section:
-                prices = re.findall(r"\d+\.\d+", targets_section.group(1))
-                for i, price in enumerate(prices, 1):
-                    tp_levels[f"tp{i}"] = float(price)
-            
-            # الطريقة 3: البحث في كل الرسالة إذا فشلت الطريقتان السابقتان
-            if not tp_levels:
-                all_targets = re.findall(r"(\d+)\s+(\d+\.\d+)", text)
-                for match in all_targets:
-                    tp_num = int(match[0])
-                    tp_price = float(match[1])
-                    tp_levels[f"tp{tp_num}"] = tp_price
+                    else:
+                        # إذا كان السطر يحتوي فقط على الرقم بدون ترقيم
+                        price_match = re.search(r"(\d+\.\d+)", line.strip())
+                        if price_match:
+                            tp_num = len(tp_levels) + 1
+                            tp_price = float(price_match.group(1))
+                            tp_levels[f"tp{tp_num}"] = tp_price
+
+            if not (coin_match and entry_match and sl_match):
+                await update.message.reply_text("⚠️ Could not parse basic signal information")
+                return
+
+            coin = coin_match.group(1).strip()
+            entry = float(entry_match.group(1))
+            sl = float(sl_match.group(1))
             
             if not tp_levels:
                 await update.message.reply_text("⚠️ No profit targets found in the message")
