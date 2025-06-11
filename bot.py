@@ -16,13 +16,13 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
             logging.info(f"Received signal: {text}")
             
             # استخراج البيانات من التنسيق الجديد
-            coin_match = re.search(r"Coin:\s*(\w+/\w+)", text)
-            entry_match = re.search(r"Entry Point:\s*(\d+\.\d+)", text)
-            sl_match = re.search(r"Stop Loss:\s*(\d+\.\d+)", text)
+            coin_match = re.search(r"Coin:\s*(\w+/\w+)", text, re.IGNORECASE)
+            entry_match = re.search(r"Entry Point:\s*(\d+\.\d+)", text, re.IGNORECASE)
+            sl_match = re.search(r"Stop Loss:\s*(\d+\.\d+)", text, re.IGNORECASE)
             tp_matches = re.finditer(r"(\d+)\s+(\d+\.\d+)", text)
             
             if not (coin_match and entry_match and sl_match):
-                await update.message.reply_text("⚠️ تعذر تحليل التوصية، يرجى التأكد من التنسيق")
+                await update.message.reply_text("⚠️ Could not parse the signal. Please check the format")
                 return
 
             coin = coin_match.group(1).strip()
@@ -37,7 +37,7 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
                 tp_levels[f"tp{tp_num}"] = tp_price
             
             if not tp_levels:
-                await update.message.reply_text("⚠️ لم يتم العثور على أهداف ربح")
+                await update.message.reply_text("⚠️ No profit targets found")
                 return
 
             active_signals[coin] = {
@@ -47,11 +47,11 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
                 "message_id": update.message.forward_from_message_id
             }
             
-            await update.message.reply_text(f"✅ بدأ تتبع {coin} | الدخول: {entry} | SL: {sl}")
+            await update.message.reply_text(f"✅ Started tracking {coin} | Entry: {entry} | SL: {sl}")
 
     except Exception as e:
         logging.error(f"Signal handling error: {str(e)}")
-        await update.message.reply_text("❌ حدث خطأ في معالجة التوصية")
+        await update.message.reply_text("❌ Error processing the signal")
 
 async def check_prices(context: CallbackContext):
     try:
@@ -60,29 +60,29 @@ async def check_prices(context: CallbackContext):
                 ticker = ccxt.binance().fetch_ticker(coin)
                 current_price = ticker['last']
                 
-                # التحقق من SL أولاً
+                # Check SL first
                 if current_price <= data['sl']:
                     loss_pct = ((data['entry'] - current_price) / data['entry']) * 100
                     await context.bot.send_message(
                         chat_id=CHANNEL_ID,
-                        text=f"🛑 وقف خسارة {coin}\n"
-                             f"السعر: {current_price:.2f} | الخسارة: {loss_pct:.1f}%\n"
-                             f"الدخول: {data['entry']} | SL: {data['sl']}",
+                        text=f"🛑 STOP LOSS triggered for {coin}\n"
+                             f"Price: {current_price:.2f} | Loss: {loss_pct:.1f}%\n"
+                             f"Entry: {data['entry']} | SL: {data['sl']}",
                         reply_to_message_id=data['message_id']
                     )
                     del active_signals[coin]
                     continue
                 
-                # التحقق من نقاط TP
+                # Check TP levels
                 for tp_num in sorted([k for k in data.keys() if k.startswith('tp')]):
                     tp_price = data[tp_num]
                     if current_price >= tp_price:
                         profit_pct = ((current_price - data['entry']) / data['entry']) * 100
                         await context.bot.send_message(
                             chat_id=CHANNEL_ID,
-                            text=f"🎯 تحقيق {tp_num.upper()} لـ {coin}\n"
-                                 f"السعر: {current_price:.2f} | الربح: +{profit_pct:.1f}%\n"
-                                 f"الدخول: {data['entry']} | {tp_num.upper()}: {tp_price}",
+                            text=f"🎯 TARGET {tp_num.upper()} HIT for {coin}\n"
+                                 f"Price: {current_price:.2f} | Profit: +{profit_pct:.1f}%\n"
+                                 f"Entry: {data['entry']} | {tp_num.upper()}: {tp_price}",
                             reply_to_message_id=data['message_id']
                         )
                         del active_signals[coin]
@@ -98,13 +98,13 @@ async def check_prices(context: CallbackContext):
         logging.critical(f"Global price check error: {str(e)}")
 
 def main():
-    # تهيئة التطبيق
+    # Initialize application
     app = Application.builder().token(TOKEN).build()
     
-    # إضافة المعالجات
+    # Add handlers
     app.add_handler(MessageHandler(filters.TEXT & filters.FORWARDED, handle_forwarded_message))
     
-    # ضبط المهمة الدورية
+    # Set up periodic job
     job_queue = app.job_queue
     job_queue.run_repeating(
         callback=check_prices,
@@ -112,7 +112,7 @@ def main():
         first=10
     )
     
-    # التسجيل والبدء
+    # Configure logging
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         level=logging.INFO
