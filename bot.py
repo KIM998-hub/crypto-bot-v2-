@@ -32,9 +32,11 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
             if targets_section:
                 tp_content = targets_section.group(1).strip()
                 # استخراج جميع الأسعار من القسم
-                tp_prices = re.findall(r'\d+\.\d+', tp_content)
-                for i, price in enumerate(tp_prices, 1):
-                    tp_levels[f"tp{i}"] = float(price)
+                tp_matches = re.finditer(r'(\d+)\s+(\d+\.\d+)', tp_content)
+                for match in tp_matches:
+                    tp_num = int(match.group(1))
+                    tp_price = float(match.group(2))
+                    tp_levels[tp_num] = tp_price
 
             if not coin_match:
                 await update.message.reply_text("⚠️ Could not find Coin information")
@@ -57,7 +59,8 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
             active_signals[coin] = {
                 "entry": entry,
                 "sl": sl,
-                **tp_levels,
+                "targets": tp_levels,  # تخزين جميع الأهداف
+                "achieved": [],        # قائمة بالأهداف المحققة
                 "message_id": update.message.forward_from_message_id
             }
             
@@ -98,23 +101,30 @@ async def check_prices(context: CallbackContext):
                     continue
                 
                 # التحقق من أهداف الربح
-                for i in range(1, 8):  # من 1 إلى 7
-                    tp_key = f"tp{i}"
-                    if tp_key in data:
-                        tp_price = data[tp_key]
-                        if current_price >= tp_price:
-                            profit_pct = ((current_price - data['entry']) / data['entry']) * 100
-                            message = f"""🎯 تم تحقيق الهدف {i} لـ {coin}
+                for tp_num, tp_price in data['targets'].items():
+                    # تخطي الأهداف المحققة سابقاً
+                    if tp_num in data['achieved']:
+                        continue
+                        
+                    if current_price >= tp_price:
+                        profit_pct = ((current_price - data['entry']) / data['entry']) * 100
+                        message = f"""🎯 تم تحقيق الهدف {tp_num} لـ {coin}
 السعر الحالي: {current_price:.4f}
 الربح: +{profit_pct:.2f}%
 نقطة الدخول: {data['entry']}
 الهدف: {tp_price}"""
-                            
-                            await context.bot.send_message(
-                                chat_id=CHANNEL_ID,
-                                text=message,
-                                reply_to_message_id=data['message_id']
-                            )
+                        
+                        await context.bot.send_message(
+                            chat_id=CHANNEL_ID,
+                            text=message,
+                            reply_to_message_id=data['message_id']
+                        )
+                        
+                        # إضافة الهدف المحقق إلى القائمة
+                        active_signals[coin]['achieved'].append(tp_num)
+                        
+                        # حذف الإشارة إذا تحققت جميع الأهداف
+                        if len(active_signals[coin]['achieved']) == len(data['targets']):
                             del active_signals[coin]
                             break
                             
