@@ -15,56 +15,62 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
             text = update.message.text
             logging.info(f"Received signal: {text}")
             
-            # استخراج جميع الإشارات في الرسالة الواحدة
-            signals = re.split(r'Dream crypto spot signals\s+New Spot Signal', text)
+            # تنظيف المحتوى الإعلاني الروسي
+            cleaned_text = re.sub(r'Быстрый, и стабильный.*?vpn\.arturshi\.ru', '', text, flags=re.DOTALL)
+            cleaned_text = re.sub(r'Попробуйте 7 дней.*?Поддерживаются все устройства.*?\[YouTube 💬\].*?Резервная ссылка.*', 
+                                '', cleaned_text, flags=re.DOTALL)
             
-            for signal_text in signals:
-                if not signal_text.strip():
-                    continue
-                    
-                # استخراج البيانات من كل إشارة
-                coin_match = re.search(r'Coin:\s*(\w+/\w+)', signal_text, re.IGNORECASE)
-                entry_match = re.search(r'Entry Point:\s*(\d+\.\d+)', signal_text, re.IGNORECASE)
-                sl_match = re.search(r'Stop Loss:\s*(\d+\.\d+)', signal_text, re.IGNORECASE)
-                
-                # استخراج أهداف الربح
-                tp_levels = {}
-                targets_section = re.search(r'Targets:\s*((?:\d+\s+\d+\.\d+\s*)+)', signal_text, re.IGNORECASE)
-                if targets_section:
-                    tp_lines = targets_section.group(1).strip().split('\n')
+            # استخراج البيانات الأساسية
+            coin_match = re.search(r'📊 Coin:\s*(\w+/\w+)|Coin:\s*(\w+/\w+)', cleaned_text, re.IGNORECASE)
+            entry_match = re.search(r'🎯 Entry Point:\s*(\d+\.\d+)|Entry Point:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
+            sl_match = re.search(r'🛡️ Stop Loss:\s*(\d+\.\d+)|Stop Loss:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
+            
+            # استخراج أهداف الربح
+            tp_levels = {}
+            targets_section = re.search(r'🎯 Targets:([\s\S]*?)(?:\n\n|\Z)|Targets:([\s\S]*?)(?:\n\n|\Z)', cleaned_text, re.IGNORECASE)
+            
+            if targets_section:
+                tp_content = targets_section.group(1) or targets_section.group(2)
+                if tp_content:
+                    tp_lines = tp_content.strip().split('\n')
                     for line in tp_lines:
-                        match = re.match(r'(\d+)\s+(\d+\.\d+)', line.strip())
-                        if match:
-                            tp_num = int(match.group(1))
-                            tp_price = float(match.group(2))
-                            tp_levels[tp_num] = tp_price
+                        price_match = re.search(r'\d+\.\d+', line)
+                        if price_match:
+                            tp_num = len(tp_levels) + 1
+                            tp_price = float(price_match.group(0))
+                            tp_levels[f"tp{tp_num}"] = tp_price
 
-                if not (coin_match and entry_match and sl_match and tp_levels):
-                    logging.warning(f"Could not parse signal: {signal_text[:100]}...")
-                    continue
+            if not coin_match:
+                return
+            if not entry_match:
+                return
+            if not sl_match:
+                return
 
-                coin = coin_match.group(1).strip()
-                entry = float(entry_match.group(1))
-                sl = float(sl_match.group(1))
-                
-                # تخزين الإشارة مع جميع الأهداف
-                active_signals[coin] = {
-                    "entry": entry,
-                    "sl": sl,
-                    "targets": tp_levels,
-                    "achieved": set(),  # مجموعة الأهداف المحققة
-                    "message_id": update.message.forward_from_message_id
-                }
-                
-                response = f"""✅ بدأ تتبع {coin}
+            coin = coin_match.group(1) or coin_match.group(2)
+            entry = float(entry_match.group(1) or float(entry_match.group(2))
+            sl = float(sl_match.group(1) or float(sl_match.group(2)))
+            
+            if not tp_levels:
+                return
+
+            active_signals[coin] = {
+                "entry": entry,
+                "sl": sl,
+                "targets": tp_levels,
+                "achieved": set(),
+                "message_id": update.message.forward_from_message_id
+            }
+            
+            response = f"""✅ بدأ تتبع {coin}
 الدخول: {entry}
 وقف الخسارة: {sl}
 عدد الأهداف: {len(tp_levels)}"""
-                await update.message.reply_text(response)
+            
+            await update.message.reply_text(response)
 
     except Exception as e:
-        logging.error(f"خطأ في معالجة الإشارة: {str(e)}", exc_info=True)
-        await update.message.reply_text(f"❌ خطأ: {str(e)}")
+        logging.error(f"خطأ في معالجة الإشارة: {str(e)}")
 
 async def check_prices(context: CallbackContext):
     try:
@@ -94,7 +100,6 @@ async def check_prices(context: CallbackContext):
                 # التحقق من أهداف الربح
                 new_achieved = False
                 for tp_num, tp_price in data['targets'].items():
-                    # تخطي الأهداف المحققة سابقاً
                     if tp_num in data['achieved']:
                         continue
                         
@@ -111,8 +116,6 @@ async def check_prices(context: CallbackContext):
                             text=message,
                             reply_to_message_id=data['message_id']
                         )
-                        
-                        # إضافة الهدف المحقق إلى القائمة
                         active_signals[coin]['achieved'].add(tp_num)
                         new_achieved = True
                 
@@ -120,7 +123,6 @@ async def check_prices(context: CallbackContext):
                 if len(active_signals[coin]['achieved']) == len(data['targets']):
                     del active_signals[coin]
                 elif new_achieved:
-                    # تحديث بيانات الإشارة بعد تحقيق أهداف جديدة
                     active_signals[coin] = data
                             
             except ccxt.NetworkError as e:
@@ -130,10 +132,18 @@ async def check_prices(context: CallbackContext):
                 del active_signals[coin]
                 
     except Exception as e:
-        logging.critical(f"خطأ عام في فحص الأسعار: {str(e)}", exc_info=True)
+        logging.critical(f"خطأ عام في فحص الأسعار: {str(e)}")
 
 def main():
+    # حل مشكلة التعارض بين webhook و polling
     app = Application.builder().token(TOKEN).build()
+    
+    # 1. حذف أي webhook موجود مسبقاً
+    import asyncio
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(app.bot.delete_webhook())
+    
+    # 2. بدء البوت في وضع polling
     app.add_handler(MessageHandler(filters.TEXT & filters.FORWARDED, handle_forwarded_message))
     
     job_queue = app.job_queue
