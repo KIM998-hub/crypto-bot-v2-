@@ -1,5 +1,6 @@
 import logging
 import re
+import asyncio
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, CallbackContext
 import ccxt
@@ -40,18 +41,24 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
                             tp_price = float(price_match.group(0))
                             tp_levels[f"tp{tp_num}"] = tp_price
 
-            if not coin_match:
-                return
-            if not entry_match:
-                return
-            if not sl_match:
-                return
-
-            coin = coin_match.group(1) or coin_match.group(2)
-            entry = float(entry_match.group(1) or float(entry_match.group(2))
-            sl = float(sl_match.group(1) or float(sl_match.group(2)))
+            # التصحيح: استخراج القيم بشكل صحيح
+            coin = None
+            if coin_match:
+                coin = coin_match.group(1) or coin_match.group(2)
             
-            if not tp_levels:
+            entry = None
+            if entry_match:
+                entry_val = entry_match.group(1) or entry_match.group(2)
+                if entry_val:
+                    entry = float(entry_val)
+            
+            sl = None
+            if sl_match:
+                sl_val = sl_match.group(1) or sl_match.group(2)
+                if sl_val:
+                    sl = float(sl_val)
+
+            if not coin or not entry or not sl or not tp_levels:
                 return
 
             active_signals[coin] = {
@@ -139,7 +146,6 @@ def main():
     app = Application.builder().token(TOKEN).build()
     
     # 1. حذف أي webhook موجود مسبقاً
-    import asyncio
     loop = asyncio.get_event_loop()
     loop.run_until_complete(app.bot.delete_webhook())
     
