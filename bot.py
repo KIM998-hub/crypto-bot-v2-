@@ -10,56 +10,62 @@ CHANNEL_ID = -1002509422719
 
 active_signals = {}
 
+def extract_signal_data(text):
+    """استخراج بيانات الإشارة بدقة مع تجنب المحتوى الإعلاني"""
+    # محاولة تحديد بداية ونهاية الإشارة الحقيقية
+    signal_start = re.search(r'Dream crypto spot signals\s+New Spot Signal', text)
+    if not signal_start:
+        return None
+        
+    # أخذ جزء النص بعد بداية الإشارة
+    signal_text = text[signal_start.end():]
+    
+    # إيجاد نهاية الإشارة (قبل بداية الإعلان الروسي)
+    signal_end = re.search(r'(Быстрый, и стабильный|Попробуйте 7 дней|Открыть VPN)', signal_text)
+    if signal_end:
+        signal_text = signal_text[:signal_end.start()]
+    
+    # الآن استخراج البيانات من الجزء النظيف
+    coin_match = re.search(r'Coin:\s*(\w+/\w+)', signal_text, re.IGNORECASE)
+    entry_match = re.search(r'Entry Point:\s*(\d+\.\d+)', signal_text, re.IGNORECASE)
+    sl_match = re.search(r'Stop Loss:\s*(\d+\.\d+)', signal_text, re.IGNORECASE)
+    
+    # استخراج أهداف الربح بدقة
+    tp_levels = {}
+    targets_section = re.search(r'Targets:\s*((?:\d+\s+\d+\.\d+\s*)+)', signal_text, re.IGNORECASE)
+    if targets_section:
+        tp_lines = targets_section.group(1).strip().split('\n')
+        for line in tp_lines:
+            match = re.match(r'(\d+)\s+(\d+\.\d+)', line.strip())
+            if match:
+                tp_num = int(match.group(1))
+                tp_price = float(match.group(2))
+                tp_levels[tp_num] = tp_price
+
+    return {
+        "coin": coin_match.group(1).strip() if coin_match else None,
+        "entry": float(entry_match.group(1)) if entry_match else None,
+        "sl": float(sl_match.group(1)) if sl_match else None,
+        "targets": tp_levels
+    }
+
 async def handle_forwarded_message(update: Update, context: CallbackContext):
     try:
         if update.message.forward_from_chat and update.message.forward_from_chat.id == CHANNEL_ID:
             text = update.message.text
             logging.info(f"Received signal: {text}")
             
-            # تنظيف المحتوى الإعلاني الروسي
-            cleaned_text = re.sub(r'Быстрый, и стабильный.*?vpn\.arturshi\.ru', '', text, flags=re.DOTALL)
-            cleaned_text = re.sub(r'Попробуйте 7 дней.*?Поддерживаются все устройства.*?\[YouTube 💬\].*?Резервная ссылка.*', 
-                                '', cleaned_text, flags=re.DOTALL)
+            # استخراج بيانات الإشارة باستخدام الدالة الجديدة
+            signal_data = extract_signal_data(text)
             
-            # استخراج البيانات الأساسية
-            coin_match = re.search(r'📊 Coin:\s*(\w+/\w+)|Coin:\s*(\w+/\w+)', cleaned_text, re.IGNORECASE)
-            entry_match = re.search(r'🎯 Entry Point:\s*(\d+\.\d+)|Entry Point:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
-            sl_match = re.search(r'🛡️ Stop Loss:\s*(\d+\.\d+)|Stop Loss:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
-            
-            # استخراج أهداف الربح
-            tp_levels = {}
-            targets_section = re.search(r'🎯 Targets:([\s\S]*?)(?:\n\n|\Z)|Targets:([\s\S]*?)(?:\n\n|\Z)', cleaned_text, re.IGNORECASE)
-            
-            if targets_section:
-                tp_content = targets_section.group(1) or targets_section.group(2)
-                if tp_content:
-                    tp_lines = tp_content.strip().split('\n')
-                    for line in tp_lines:
-                        price_match = re.search(r'\d+\.\d+', line)
-                        if price_match:
-                            tp_num = len(tp_levels) + 1
-                            tp_price = float(price_match.group(0))
-                            tp_levels[f"tp{tp_num}"] = tp_price
-
-            # التصحيح: استخراج القيم بشكل صحيح
-            coin = None
-            if coin_match:
-                coin = coin_match.group(1) or coin_match.group(2)
-            
-            entry = None
-            if entry_match:
-                entry_val = entry_match.group(1) or entry_match.group(2)
-                if entry_val:
-                    entry = float(entry_val)
-            
-            sl = None
-            if sl_match:
-                sl_val = sl_match.group(1) or sl_match.group(2)
-                if sl_val:
-                    sl = float(sl_val)
-
-            if not coin or not entry or not sl or not tp_levels:
+            if not signal_data or not signal_data["coin"] or not signal_data["entry"] or not signal_data["sl"] or not signal_data["targets"]:
+                logging.warning("⚠️ Could not extract valid signal data")
                 return
+
+            coin = signal_data["coin"]
+            entry = signal_data["entry"]
+            sl = signal_data["sl"]
+            tp_levels = signal_data["targets"]
 
             active_signals[coin] = {
                 "entry": entry,
@@ -77,7 +83,7 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
             await update.message.reply_text(response)
 
     except Exception as e:
-        logging.error(f"خطأ في معالجة الإشارة: {str(e)}")
+        logging.error(f"خطأ في معالجة الإشارة: {str(e)}", exc_info=True)
 
 async def check_prices(context: CallbackContext):
     try:
@@ -130,26 +136,26 @@ async def check_prices(context: CallbackContext):
                 if len(active_signals[coin]['achieved']) == len(data['targets']):
                     del active_signals[coin]
                 elif new_achieved:
+                    # تحديث حالة الإشارة
                     active_signals[coin] = data
                             
             except ccxt.NetworkError as e:
                 logging.warning(f"خطأ في الشبكة لـ {coin}: {str(e)}")
             except Exception as e:
-                logging.error(f"خطأ في فحص السعر لـ {coin}: {str(e)}")
+                logging.error(f"خطأ في فحص السعر لـ {coin}: {str(e)}", exc_info=True)
                 del active_signals[coin]
                 
     except Exception as e:
-        logging.critical(f"خطأ عام في فحص الأسعار: {str(e)}")
+        logging.critical(f"خطأ عام في فحص الأسعار: {str(e)}", exc_info=True)
 
 def main():
     # حل مشكلة التعارض بين webhook و polling
     app = Application.builder().token(TOKEN).build()
     
-    # 1. حذف أي webhook موجود مسبقاً
+    # حذف أي webhook موجود مسبقاً
     loop = asyncio.get_event_loop()
     loop.run_until_complete(app.bot.delete_webhook())
     
-    # 2. بدء البوت في وضع polling
     app.add_handler(MessageHandler(filters.TEXT & filters.FORWARDED, handle_forwarded_message))
     
     job_queue = app.job_queue
