@@ -11,55 +11,40 @@ CHANNEL_ID = -1002509422719
 active_signals = {}
 
 def extract_signal_data(text):
-    """استخراج بيانات الإشارة مع حماية كاملة ضد المحتوى الإعلاني"""
-    # إزالة كافة الإعلانات الروسية باستخدام تعبيرات منتظمة دقيقة
+    """استخراج بيانات الإشارة بدقة مع تجنب الأخطاء الشائعة"""
+    # إزالة المحتوى الإعلاني
     cleaned_text = re.sub(
         r'Быстрый, и стабильный.*?vpn\.arturshi\.ru|'
         r'Попробуйте 7 дней.*?Резервная ссылка.*|'
         r'📖 Telgram BOT.*?Поддерживаются все устройства.*?'
-        r'(\[YouTube 💬\]|\[Instagram 💬\]).*?'
         r'Открыть VPN 💬',
         '', text, flags=re.DOTALL | re.IGNORECASE
     )
     
-    # إزالة أي محتوى غير ضروري (رموز، تواريخ، إلخ)
-    cleaned_text = re.sub(r'\d{1,2}:\d{1,2}\s*$', '', cleaned_text, flags=re.MULTILINE)
-    cleaned_text = re.sub(r'\[Unread Messages\]|\[[x ]\]', '', cleaned_text)
+    # استخراج البيانات الأساسية
+    coin_match = re.search(r'Coin:\s*(\w+/\w+)', cleaned_text, re.IGNORECASE)
+    entry_match = re.search(r'Entry Point:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
+    sl_match = re.search(r'Stop Loss:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
     
-    # استخراج البيانات الأساسية بأنماط مرنة
-    coin_match = re.search(r'Coin:\s*(\w+/\w+)', cleaned_text) or \
-                re.search(r'الزوج:\s*(\w+/\w+)', cleaned_text) or \
-                re.search(r'\b([A-Z]{3,10}/[A-Z]{3,10})\b', cleaned_text)
-    
-    entry_match = re.search(r'Entry Point:\s*(\d+\.\d+)', cleaned_text) or \
-                 re.search(r'الدخول:\s*(\d+\.\d+)', cleaned_text) or \
-                 re.search(r'Entry:\s*(\d+\.\d+)', cleaned_text)
-    
-    sl_match = re.search(r'Stop Loss:\s*(\d+\.\d+)', cleaned_text) or \
-               re.search(r'وقف الخسارة:\s*(\d+\.\d+)', cleaned_text) or \
-               re.search(r'SL:\s*(\d+\.\d+)', cleaned_text)
-    
-    # استخراج أهداف الربح باستخدام نهج متعدد الطبقات
+    # استخراج أهداف الربح بدقة عالية
     tp_levels = {}
+    targets_section = re.search(r'Targets:\s*((?:\d+\s+\d+\.\d+\s*)+)', cleaned_text, re.IGNORECASE)
     
-    # الطريقة 1: التنسيق المرقم
-    targets_section = re.search(r'Targets:\s*((?:\d+\s+\d+\.\d+\s*)+)', cleaned_text)
     if targets_section:
-        tp_matches = re.finditer(r'(\d+)\s+(\d+\.\d+)', targets_section.group(1))
-        for match in tp_matches:
-            tp_num = int(match.group(1))
-            tp_price = float(match.group(2))
-            tp_levels[tp_num] = tp_price
-    
-    # الطريقة 2: إذا فشلت الأولى، البحث عن قائمة الأسعار فقط
-    if not tp_levels:
-        prices = re.findall(r'\d+\.\d+', cleaned_text)
-        # تصفية الأسعار غير المنطقية (أقل أو أعلى من السعر المتوقع)
-        if entry_match and prices:
-            entry_price = float(entry_match.group(1))
-            filtered_prices = [p for p in prices if float(p) > entry_price * 0.9 and float(p) < entry_price * 3]
-            for i, price in enumerate(filtered_prices, 1):
-                tp_levels[i] = float(price)
+        # استخراج الأهداف فقط من القسم المخصص لها
+        target_lines = targets_section.group(1).split('\n')
+        for line in target_lines:
+            # استبعاد أي خط يحتوي على رموز غير أهداف (مثل 🎯)
+            if re.search(r'[🛡️📊🎯]', line):
+                continue
+                
+            match = re.search(r'(\d+)\s+(\d+\.\d+)', line.strip())
+            if match:
+                tp_num = int(match.group(1))
+                tp_price = float(match.group(2))
+                # التحقق من أن السعر أعلى من نقطة الدخول
+                if entry_match and tp_price > float(entry_match.group(1)):
+                    tp_levels[tp_num] = tp_price
 
     return {
         "coin": coin_match.group(1).strip() if coin_match else None,
@@ -74,18 +59,12 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
             text = update.message.text
             logging.info(f"Received signal: {text}")
             
-            # محاولة استخراج البيانات مع إعادة المحاولة التلقائية
-            signal_data = None
-            for attempt in range(3):  # 3 محاولات
-                signal_data = extract_signal_data(text)
-                if signal_data["coin"] and signal_data["entry"] and signal_data["sl"] and signal_data["targets"]:
-                    break
-                # إذا فشلت المحاولة، تنظيف إضافي للنص
-                text = re.sub(r'[^\w\s./:\d]', '', text)  # إزالة الرموز غير الضرورية
+            # استخراج بيانات الإشارة
+            signal_data = extract_signal_data(text)
             
             # التحقق من وجود بيانات صالحة
             if not signal_data["coin"] or not signal_data["entry"] or not signal_data["sl"] or not signal_data["targets"]:
-                logging.warning("⚠️ تعذر استخراج بيانات الإشارة بعد 3 محاولات")
+                logging.warning("⚠️ تعذر استخراج بيانات الإشارة")
                 return
             
             coin = signal_data["coin"]
@@ -144,7 +123,10 @@ async def check_prices(context: CallbackContext):
                 
                 # التحقق من أهداف الربح (Targets)
                 new_achievement = False
-                for tp_num, tp_price in data['targets'].items():
+                # ترتيب الأهداف تصاعدياً
+                sorted_targets = sorted(data['targets'].items(), key=lambda x: x[1])
+                
+                for tp_num, tp_price in sorted_targets:
                     if tp_num in data['achieved']:
                         continue
                     
@@ -163,6 +145,8 @@ async def check_prices(context: CallbackContext):
                         )
                         active_signals[coin]['achieved'].add(tp_num)
                         new_achievement = True
+                        # كسر الحلقة بعد تحقيق هدف واحد (للتجنب الإشعارات المتعددة)
+                        break
                 
                 # إذا تحققت جميع الأهداف، نوقف التتبع
                 if coin in active_signals and len(active_signals[coin]['achieved']) == len(data['targets']):
