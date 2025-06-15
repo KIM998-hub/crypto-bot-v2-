@@ -21,30 +21,33 @@ def extract_signal_data(text):
         '', text, flags=re.DOTALL | re.IGNORECASE
     )
     
-    # استخراج البيانات الأساسية
+    # استخراج البيانات الأساسية من التنسيق الجديد
     coin_match = re.search(r'Coin:\s*(\w+/\w+)', cleaned_text, re.IGNORECASE)
-    entry_match = re.search(r'Entry Point:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
-    sl_match = re.search(r'Stop Loss:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
+    if not coin_match:
+        coin_match = re.search(r'الزوج:\s*(\w+/\w+)', cleaned_text, re.IGNORECASE)
     
-    # استخراج أهداف الربح بدقة عالية
+    entry_match = re.search(r'Entry Point:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
+    if not entry_match:
+        entry_match = re.search(r'الدخول:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
+    
+    sl_match = re.search(r'Stop Loss:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
+    if not sl_match:
+        sl_match = re.search(r'وقف الخسارة:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
+    
+    # استخراج أهداف الربح من التنسيق الجديد (أرقام فقط)
     tp_levels = {}
-    targets_section = re.search(r'Targets:\s*((?:\d+\s+\d+\.\d+\s*)+)', cleaned_text, re.IGNORECASE)
+    targets_section = re.search(r'Targets:\s*([\d\s\.]+)', cleaned_text, re.IGNORECASE)
     
     if targets_section:
-        # استخراج الأهداف فقط من القسم المخصص لها
-        target_lines = targets_section.group(1).split('\n')
-        for line in target_lines:
-            # استبعاد أي خط يحتوي على رموز غير أهداف (مثل 🎯)
-            if re.search(r'[🛡️📊🎯]', line):
-                continue
-                
-            match = re.search(r'(\d+)\s+(\d+\.\d+)', line.strip())
-            if match:
-                tp_num = int(match.group(1))
-                tp_price = float(match.group(2))
-                # التحقق من أن السعر أعلى من نقطة الدخول
-                if entry_match and tp_price > float(entry_match.group(1)):
-                    tp_levels[tp_num] = tp_price
+        # استخراج جميع الأرقام العشرية في قسم الأهداف
+        prices = re.findall(r'\d+\.\d+', targets_section.group(1))
+        # تصفية الأسعار غير المنطقية
+        if entry_match and prices:
+            entry_price = float(entry_match.group(1))
+            filtered_prices = [p for p in prices if float(p) > entry_price]
+            # تعيين أرقام تلقائية للأهداف
+            for i, price in enumerate(filtered_prices, 1):
+                tp_levels[i] = float(price)
 
     return {
         "coin": coin_match.group(1).strip() if coin_match else None,
