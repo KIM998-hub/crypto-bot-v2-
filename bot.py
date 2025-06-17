@@ -5,49 +5,49 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, CallbackContext
 import ccxt
 
-TOKEN = "7935798222:AAG66GadO-yyPoNxudhRLncjPgW4O3n4p6A"
+# التوكن الجديد (آمن)
+TOKEN = "7935798222:AAFoiJJhw1bHVpLlsm_eG8HFUkQbZA0A8ik"
 CHANNEL_ID = -1002509422719
 
 active_signals = {}
 
 def extract_signal_data(text):
-    """استخراج بيانات الإشارة مع إزالة كاملة للمحتوى الروسي"""
-    # إزالة كافة المحتوى الروسي باستخدام نطاق أحرف Unicode
-    cleaned_text = re.sub(
-        r'[\u0400-\u04FF]+.*?',  # هذا يطابق أي نص سيريليكي (روسي)
-        '', 
-        text, 
-        flags=re.DOTALL
-    )
+    """فلتر متقدم ضد الإعلانات الروسية"""
+    # 1. حذف جميع الروابط أولاً
+    text = re.sub(r'http\S+', '', text)
     
-    # إزالة الروابط والعلامات الإعلانية الشائعة
-    cleaned_text = re.sub(
-        r'vpn\.arturshi\.ru|Резервная ссылка|Открыть VPN|📖 Telgram BOT|Поддерживаются все устройства',
-        '',
-        cleaned_text,
-        flags=re.IGNORECASE
-    )
+    # 2. حذف العلامات الروسية النموذجية
+    russian_patterns = [
+        r'VPN прямо', r'Быстрый VPN', r'Поддерживаются все устройства',
+        r'Telgram BOT', r'Попробуйте 7 дней', r'Без карт и тд',
+        r'@vpn_telegr_bot', r'vpn\.arturshi\.ru', r'Открыть VPN',
+        r'Резервная ссылка', r'в Telegram', r'Menu', r'Message'
+    ]
+    for pattern in russian_patterns:
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE)
     
-    # إزالة أي محتوى غير ضروري (رموز، تواريخ، إلخ)
-    cleaned_text = re.sub(r'\d{1,2}:\d{1,2}\s*$', '', cleaned_text, flags=re.MULTILINE)
-    cleaned_text = re.sub(r'\[[^\]]+\]', '', cleaned_text)  # إزالة أي محتوى بين أقواس
+    # 3. حذف المحتوى السيريلي (الروسي) بشكل كامل
+    text = re.sub(r'[\u0400-\u04FF]+', '', text)  # أهم تعديل!
+    
+    # 4. إزالة التنسيقات الخاصة والرموز
+    text = re.sub(r'[^\w\s\.:/]', '', text)  # حذف الرموز غير الأبجدية
     
     # استخراج البيانات الأساسية بأنماط قوية
-    coin_match = re.search(r'Coin:\s*(\w+/\w+)', cleaned_text, re.IGNORECASE)
+    coin_match = re.search(r'Coin:\s*(\w+/\w+)', text, re.IGNORECASE)
     if not coin_match:
-        coin_match = re.search(r'الزوج:\s*(\w+/\w+)', cleaned_text)
+        coin_match = re.search(r'الزوج:\s*(\w+/\w+)', text)
     
-    entry_match = re.search(r'Entry Point:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
+    entry_match = re.search(r'Entry Point:\s*(\d+\.\d+)', text, re.IGNORECASE)
     if not entry_match:
-        entry_match = re.search(r'الدخول:\s*(\d+\.\d+)', cleaned_text)
+        entry_match = re.search(r'الدخول:\s*(\d+\.\d+)', text)
     
-    sl_match = re.search(r'Stop Loss:\s*(\d+\.\d+)', cleaned_text, re.IGNORECASE)
+    sl_match = re.search(r'Stop Loss:\s*(\d+\.\d+)', text, re.IGNORECASE)
     if not sl_match:
-        sl_match = re.search(r'وقف الخسارة:\s*(\d+\.\d+)', cleaned_text)
+        sl_match = re.search(r'وقف الخسارة:\s*(\d+\.\d+)', text)
     
     # استخراج أهداف الربح باستخدام نهج متين
     tp_levels = {}
-    targets_section = re.search(r'Targets:\s*([\d\s\.]+)', cleaned_text, re.IGNORECASE)
+    targets_section = re.search(r'Targets?:\s*((?:\d+\s*\.\d+\s*)+)', text, re.IGNORECASE)
     
     if targets_section:
         # استخراج جميع الأرقام العشرية في قسم الأهداف
@@ -74,10 +74,20 @@ async def handle_forwarded_message(update: Update, context: CallbackContext):
             text = update.message.text
             logging.info(f"Received signal: {text}")
             
+            # خط دفاع أول: رفض أي رسالة روسية
+            if re.search(r'[\u0400-\u04FF]', text) or 'VPN' in text.upper():
+                logging.warning("⛔ تم حظر رسالة إعلانية")
+                await update.message.delete()  # احذف الرسالة فوراً
+                await context.bot.send_message(
+                    chat_id=CHANNEL_ID,
+                    text="⚠️ تم حذف رسالة مشبوهة تحتوي على إعلان"
+                )
+                return
+            
             # استخراج بيانات الإشارة بعد التنظيف الشديد
             signal_data = extract_signal_data(text)
             
-            # إذا فشل الاستخراج، نحاول طريقة بديلة
+            # إذا فشل الاستخراج، نستخدم الطريقة المباشرة
             if not signal_data["coin"] or not signal_data["entry"] or not signal_data["sl"] or not signal_data["targets"]:
                 # محاولة بديلة: البحث عن الأنماط الأساسية مباشرة
                 coin_match = re.search(r'Coin:\s*(\w+/\w+)', text, re.IGNORECASE)
